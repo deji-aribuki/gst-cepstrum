@@ -1,0 +1,54 @@
+
+NOTICE
+
+This project uses several open-source components. Below is the list of components and their respective licenses and authors.
+
+-------------------------------------------------------------------------------
+
+1. FFTW
+Website: http://www.fftw.org/
+License: GNU General Public License Version 2 (GPLv2) or later
+
+FFTW is a C library for computing the discrete Fourier transform (DFT) in one or more dimensions. It is one of the fastest implementations of the FFT algorithm. The authors of FFTW are Matteo Frigo and Steven G. Johnson.
+
+The full license text can be found in the FFTW distribution at the following location:
+http://www.fftw.org/fftw3_doc/License-and-Copyright.html
+
+-------------------------------------------------------------------------------
+
+2. GStreamer
+Website: https://gstreamer.freedesktop.org/
+License: GNU Lesser General Public License (LGPL) Version 2.1 or later
+
+GStreamer is a library for constructing graphs of media-handling components. The authors of GStreamer include the GStreamer community and developers working under the GNOME Foundation.
+
+The full license text can be found at:
+https://www.gnu.org/licenses/lgpl-2.1.html
+
+-------------------------------------------------------------------------------
+
+3. GLib
+Website: https://developer.gnome.org/glib/
+License: GNU Lesser General Public License (LGPL) Version 2.1 or later
+
+GLib is the low-level core library that forms the basis for projects such as GTK+ and GStreamer. It provides data structures and utilities for C programs. The authors of GLib include the GNOME community.
+
+The full license text can be found at:
+https://www.gnu.org/licenses/lgpl-2.1.html
+
+-------------------------------------------------------------------------------
+
+4. Meson Build System
+Website: https://mesonbuild.com/
+License: Apache License 2.0
+
+Meson is a fast and user-friendly build system. The primary author of Meson is Jussi Pakkanen.
+
+The full license text can be found at:
+https://opensource.org/licenses/Apache-2.0
+
+-------------------------------------------------------------------------------
+
+Additional components, libraries, or tools used in this project may be covered by their respective licenses. This project honors and complies with all the licensing requirements of the open-source software it integrates.
+
+Please refer to the respective project websites or documentation for further details on licensing and usage terms.
