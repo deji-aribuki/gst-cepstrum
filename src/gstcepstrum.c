@@ -35,15 +35,10 @@
  * * #GstClockTime `duration`: the duration of the buffer.
  * * #GstClockTime `endtime`: the end time of the buffer that triggered the message as stream time (this
  *   is deprecated, as it can be calculated from stream-time + duration)
- * * A #GST_TYPE_LIST value of #gfloat `magnitude`: the level for each frequency band in dB.
- *   All values below the value of the
- *   #GstSpectrum:threshold property will be set to the threshold. Only present
- *   if the #GstSpectrum:message-magnitude property is %TRUE.
- * * A #GST_TYPE_LIST of #gfloat `phase`: The phase for each frequency band. The value is between -pi and pi. Only
- *   present if the #GstSpectrum:message-phase property is %TRUE.
+ * * A #GST_TYPE_LIST value of #gfloat `cepstrum`: the computed mfcc coefficients.
  *
- * If #GstCepstrum:multi-channel property is set to true. magnitude and phase
- * fields will be each a nested #GST_TYPE_ARRAY value. The first dimension are the
+ * If #GstCepstrum:multi-channel property is set to true. cepstrum field will
+ * be each a nested #GST_TYPE_ARRAY value. The first dimension are the
  * channels and the second dimension are the values.
  *
  * ## Example application
@@ -125,9 +120,6 @@ static void alloc_mel_filterbank (gfloat **fbank, gint nfilts,
           gint sample_rate, gint nfft);
 static void free_mel_filterbank (gfloat **fbank, gint nfilts);
 
-#define PI 3.14159265359
-#define HZ_TO_MEL (hz) (2595 * log10 (1 + hz / 700))
-#define MEL_TO_HZ (mel) (pow (10, mel / 2595) - 1)
 
 static void
 gst_cepstrum_class_init (GstCepstrumClass * klass)
@@ -257,6 +249,8 @@ gst_cepstrum_alloc_channel_data (GstCepstrum * cepstrum)
 
   cepstrum->channel_data = g_new (GstCepstrumChannel, cepstrum->num_channels);
   cepstrum->filter_bank = g_malloc0 (sizeof (gfloat*) * nfilts);
+  alloc_mel_filterbank (cepstrum->filter_bank, nfilts, sample_rate, nfft);
+
   for (i = 0; i < cepstrum->num_channels; i++) {
     cd = &cepstrum->channel_data[i];
     cd->input = g_new0 (gfloat, nfft);
@@ -271,7 +265,6 @@ gst_cepstrum_alloc_channel_data (GstCepstrum * cepstrum)
     cd->spect_magnitude = g_new0 (gfloat, fft_size);
     cd->mfcc = g_new0 (gfloat, nfilts);
   }
-  alloc_mel_filterbank (cepstrum->filter_bank, nfilts, sample_rate, nfft);
 }
 
 static void
@@ -741,7 +734,7 @@ gst_cepstrum_message_add_array (GValue * cv, gfloat * data, guint num_values)
 }
 
 static GstMessage *
-gst_cepstrum_message_new (GstCepstrum * cepstrum, GstClockTime timestamp,
+gst_cepstrum_message_new  (GstCepstrum * cepstrum, GstClockTime timestamp,
     GstClockTime duration)
 {
   GstBaseTransform *trans = GST_BASE_TRANSFORM_CAST (cepstrum);
@@ -772,13 +765,13 @@ gst_cepstrum_message_new (GstCepstrum * cepstrum, GstClockTime timestamp,
     cd = &cepstrum->channel_data[0];
 
       /* FIXME 0.11: this should be an array, not a list */
-      mcv = gst_cepstrum_message_add_container (s, GST_TYPE_LIST, "magnitude");
+      mcv = gst_cepstrum_message_add_container (s, GST_TYPE_LIST, "coeffs");
       gst_cepstrum_message_add_list (mcv, cd->mfcc, cepstrum->num_coeffs);
   } else {
     guint c;
     guint channels = GST_AUDIO_FILTER_CHANNELS (cepstrum);
 
-    mcv = gst_cepstrum_message_add_container (s, GST_TYPE_ARRAY, "magnitude");
+    mcv = gst_cepstrum_message_add_container (s, GST_TYPE_ARRAY, "coeffs");
     for (c = 0; c < channels; c++) {
       cd = &cepstrum->channel_data[c];
       gst_cepstrum_message_add_array (mcv, cd->mfcc,
@@ -789,7 +782,7 @@ gst_cepstrum_message_new (GstCepstrum * cepstrum, GstClockTime timestamp,
 }
 
 static void
-pre_emphasis (gfloat *data, gint size, float alpha)
+pre_emphasis (gfloat *data, gint size, gfloat alpha)
 {
   int i;
   for (i = size - 1; i > 0; i--) {
@@ -798,32 +791,32 @@ pre_emphasis (gfloat *data, gint size, float alpha)
 }
 
 static void
-hamming_window (float *data, guint size)
+hamming_window (gfloat *data, guint size)
 {
   for (guint i = 0; i < size; ++i) {
-      data[i] *= (0.54 - 0.46 * cos((2 * PI * i) / (size - 1)));
+      data[i] *= (0.54 - 0.46 * cos ((2 * G_PI * i) / (size - 1)));
   }
 }
 
 static void
-compute_dct (float *in, float *out, guint size)
+compute_dct (gfloat *in, gfloat *out, guint size)
 {
   for (guint k = 0; k < size; k++) {
       out[k] = 0.0;
       for (guint n = 0; n < size; n++) {
-          out[k] += in[n] * cos(PI * k * (n + 0.5) / size);
+          out[k] += in[n] * cos (G_PI * k * (n + 0.5) / size);
       }
   }
 }
 
 static inline gfloat hz_to_mel(gfloat hz)
 {
-  return 2595.0 * log10f(1.0 + hz / 700.0);
+  return 2595.0 * log10f (1.0 + hz / 700.0);
 }
 
 static inline gfloat mel_to_hz(gfloat mel)
 {
-  return 700.0 * (powf(10.0, mel / 2595.0) - 1.0);
+  return 700.0 * (powf (10.0, mel / 2595.0) - 1.0);
 }
 
 static void
@@ -853,14 +846,14 @@ alloc_mel_filterbank (gfloat **fbank, gint nfilts,
         fbank[i][k] = (bin[i+1] - k) / (bin[i+1] - bin[i]);
   }
 
-  g_free(bin);
+  g_free (bin);
 }
 
 static void
 free_mel_filterbank (gfloat **fbank, gint nfilts)
 {
     for (guint i = 0; i < nfilts; i++) {
-        g_free(fbank[i]);
+        g_free (fbank[i]);
     }
 }
 
