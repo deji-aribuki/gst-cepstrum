@@ -82,7 +82,8 @@ GST_DEBUG_CATEGORY_STATIC (gst_cepstrum_debug);
 #define DEFAULT_WINDOW_SIZE       512
 #define DEFAULT_HOP_SIZE          256
 #define DEFAULT_USE_PREEMPHASIS   TRUE
-#define DEFAULT_PREEMPHASIS_COEFF 0.97 
+#define DEFAULT_PREEMPHASIS_COEFF 0.97
+
 
 
 enum
@@ -165,25 +166,25 @@ gst_cepstrum_class_init (GstCepstrumClass * klass)
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_SAMPLE_RATE,
-      g_param_spec_int ("sample-rate", "Sample rate",
+      g_param_spec_uint ("sample-rate", "Sample rate",
           "Audio sample rate",
           0, 92000, DEFAULT_SAMPLE_RATE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_FFT_SIZE,
-      g_param_spec_int ("fft-size", "FFT size",
+      g_param_spec_uint ("fft-size", "FFT size",
           "FFT size for MFCC computation",
           0, 4096, DEFAULT_FFT_SIZE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_WINDOW_SIZE,
-      g_param_spec_int ("window-size", "Window size",
+      g_param_spec_uint ("window-size", "Window size",
           "Window size for MFCC computation",
           0, 4096, DEFAULT_WINDOW_SIZE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
 
   g_object_class_install_property (gobject_class, PROP_HOP_SIZE,
-      g_param_spec_int ("hop-size", "Hop size",
+      g_param_spec_uint ("hop-size", "Hop size",
           "Hop size for MFCC computation",
           0, 4096, DEFAULT_HOP_SIZE,
           G_PARAM_READWRITE | G_PARAM_STATIC_STRINGS));
@@ -218,6 +219,7 @@ gst_cepstrum_init (GstCepstrum * cepstrum)
   cepstrum->multi_channel = DEFAULT_MULTI_CHANNEL;
   cepstrum->interval = DEFAULT_INTERVAL;
   cepstrum->num_coeffs = DEFAULT_NUM_COEFFS;
+  cepstrum->num_filters = 2 * cepstrum->num_coeffs;
   cepstrum->sample_rate = DEFAULT_SAMPLE_RATE;
   cepstrum->fft_size = DEFAULT_FFT_SIZE;
   cepstrum->win_size = DEFAULT_WINDOW_SIZE;
@@ -254,17 +256,22 @@ gst_cepstrum_alloc_channel_data (GstCepstrum * cepstrum)
   for (i = 0; i < cepstrum->num_channels; i++) {
     cd = &cepstrum->channel_data[i];
     cd->input = g_new0 (gfloat, nfft);
-    cd->input_tmp = g_new0 (gfloat, nfft);
 #ifdef HAVE_LIBFFTW
+    cd->input_tmp = (gfloat*) fftw_malloc(sizeof(gfloat) * nfft);
     cd->fftdata = (fftw_complex*) fftw_malloc(sizeof(fftw_complex) * nfft);
     cd->fftplan = fftw_plan_dft_r2c_1d(nfft, (double *) cd->input_tmp,
                         cd->fftdata, FFTW_ESTIMATE);
 #else
-    cd->fftdata = (fftw_complex*) fftw_malloc (sizeof(fftw_complex) * fft_size);
+    cd->fft_ctx = gst_fft_f32_new (nfft, FALSE);
+    cd->input_tmp = g_new0 (gfloat, nfft);
+    cd->fftdata = g_new0 (GstFFTF32Complex, fft_size);
 #endif
     cd->spect_magnitude = g_new0 (gfloat, fft_size);
     cd->mfcc = g_new0 (gfloat, nfilts);
   }
+
+  GST_DEBUG_OBJECT (cepstrum, "fft_size %d", fft_size);
+
 }
 
 static void
@@ -362,7 +369,7 @@ gst_cepstrum_set_property (GObject * object, guint prop_id,
       break;
     }
     case PROP_SAMPLE_RATE:
-      filter->sample_rate = g_value_get_int (value);
+      filter->sample_rate = g_value_get_uint (value);
       break;
     case PROP_FFT_SIZE:{
       guint fft_size = g_value_get_uint (value);
@@ -784,8 +791,7 @@ gst_cepstrum_message_new  (GstCepstrum * cepstrum, GstClockTime timestamp,
 static void
 pre_emphasis (gfloat *data, gint size, gfloat alpha)
 {
-  int i;
-  for (i = size - 1; i > 0; i--) {
+  for (guint i = size - 1; i > 0; i--) {
       data[i] = data[i] - alpha * data[i - 1];
   } 
 }
@@ -836,14 +842,14 @@ alloc_mel_filterbank (gfloat **fbank, gint nfilts,
   }
 
   /* create triangular filters */
-  for (gint i = 1; i <= nfilts; i++) {
+  for (gint i = 0; i <= nfilts; i++) {
     fbank[i] = g_malloc0 (nfft * sizeof (gfloat));
     for (gint k = 0; k < nfft; k++)
       fbank[i][k] = 0.0f;
-    for (guint k = bin[i-1]; k < bin[i]; k++)
-        fbank[i][k] = (k - bin[i-1]) / (bin[i] - bin[i-1]);
     for (guint k = bin[i]; k < bin[i+1]; k++)
-        fbank[i][k] = (bin[i+1] - k) / (bin[i+1] - bin[i]);
+        fbank[i][k] = (k - bin[i]) / (bin[i+1] - bin[i]);
+    for (guint k = bin[i+1]; k < bin[i+2]; k++)
+        fbank[i][k] = (bin[i+2] - k) / (bin[i+2] - bin[i+1]);
   }
 
   g_free (bin);
@@ -866,7 +872,7 @@ compute_mel_filterbank (gfloat *in, gfloat *out, gfloat **fbank, guint nfilts,
         for (guint j = 0; j < nfft / 2; j++) {
             out[i] += in[j] * fbank[i][j];
         }
-        out[i] = log(in[i] + 1e-10);  /* take log for stability */
+        out[i] = log (fmaxf (out[i], 1e-10));
     }
 }
 
@@ -877,9 +883,9 @@ gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
   guint fft_size = cepstrum->fft_size;
   guint nfft = 2 * fft_size - 2;
   gfloat *spect_magnitude = cd->spect_magnitude;
-  gdouble val;
   fftw_complex *fftdata = cd->fftdata;
   fftw_plan fftplan = cd->fftplan;
+  gdouble val;
 
   fftw_execute (fftplan);
 
@@ -887,7 +893,7 @@ gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
   for (guint i = 0; i < fft_size; i++) {
     val = fftdata[i][0] * fftdata[i][0];
     val += fftdata[i][1] * fftdata[i][1];
-    val /= nfft * nfft;
+    val /= nfft;
     spect_magnitude[i] += val;
   }
 }
@@ -904,7 +910,7 @@ gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
   GstFFTF32 *fft_ctx = cd->fft_ctx;
 
   gst_fft_f32_window (fft_ctx, input_tmp, GST_FFT_WINDOW_HAMMING);
-  gst_fft_f32_fft (fft_ctx, input_tmp, freqdata);
+  gst_fft_f32_fft (fft_ctx, input_tmp, fftdata);
 
   /* compute power spectrum */
   for (guint i = 0; i < fft_size; i++) {
@@ -941,7 +947,7 @@ gst_cepstrum_run_mfcc (GstCepstrum *cepstrum, GstCepstrumChannel *cd,
     pre_emphasis (input_tmp, frame_size, alpha);
 
   /* apply hamming window to input data */
-  hamming_window(input_tmp, frame_size);
+  hamming_window (input_tmp, frame_size);
 
   /* run FFT */
   gst_cepstrum_fft (cepstrum, cd);
@@ -950,7 +956,7 @@ gst_cepstrum_run_mfcc (GstCepstrum *cepstrum, GstCepstrumChannel *cd,
   compute_mel_filterbank (spect_magnitude, mfcc, fbank, nfilts, nfft);
 
   /* apply DCT to Mel coefficients to get MFCCs */
-  compute_dct(mfcc, mfcc, numcoeffs);
+  compute_dct (mfcc, mfcc, numcoeffs);
 }
 
 static void
@@ -963,18 +969,22 @@ gst_cepstrum_prepare_message_data (GstCepstrum * cepstrum,
   gfloat *spect_magnitude = cd->spect_magnitude;
 
   /* Calculate average */
-  for (i = 0; i < fft_size; i++)
+  for (i = 0; i < fft_size; i++) {
     spect_magnitude[i] /= num_fft;
+  }
 }
 
 static void
 gst_cepstrum_reset_message_data (GstCepstrum * cepstrum,
     GstCepstrumChannel * cd)
 {
+  guint fft_size = cepstrum->fft_size;
   guint mfcc_size = cepstrum->num_coeffs;
+  gfloat *spect_magnitude = cd->spect_magnitude;
   gfloat *mfcc = cd->mfcc;
 
   /* reset accumulators */
+  memset (spect_magnitude, 0, fft_size * sizeof (gfloat));
   memset (mfcc, 0, mfcc_size * sizeof (gfloat));
 }
 
