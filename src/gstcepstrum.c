@@ -812,6 +812,12 @@ compute_dct (gfloat *in, gfloat *out, guint size)
       for (guint n = 0; n < size; n++) {
           out[k] += in[n] * cos (G_PI * k * (n + 0.5) / size);
       }
+
+      /* orthogonalization */
+      if (k == 0)
+        out[k] *= sqrt (1.0 / size);
+      else
+        out[k] *= sqrt (2.0 / size);
   }
 }
 
@@ -901,7 +907,7 @@ gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
   GstFFTF32Complex *fftdata = cd->fftdata;
   GstFFTF32 *fft_ctx = cd->fft_ctx;
 
-  gst_fft_f32_window (fft_ctx, input_tmp, GST_FFT_WINDOW_HAMMING);
+  //gst_fft_f32_window (fft_ctx, input_tmp, GST_FFT_WINDOW_HAMMING);
   gst_fft_f32_fft (fft_ctx, input_tmp, fftdata);
 
   /* compute power spectrum */
