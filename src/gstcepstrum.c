@@ -267,7 +267,7 @@ gst_cepstrum_alloc_channel_data (GstCepstrum * cepstrum)
     cd->fftdata = g_new0 (GstFFTF32Complex, fft_size);
 #endif
     cd->spect_magnitude = g_new0 (gfloat, fft_size);
-    cd->mfcc = g_new0 (gfloat, nfilts);
+    cd->mfcc = g_new0 (gfloat, num_coeffs);
   }
 
   GST_DEBUG_OBJECT (cepstrum, "fft_size %d", fft_size);
@@ -747,7 +747,7 @@ gst_cepstrum_message_new  (GstCepstrum * cepstrum, GstClockTime timestamp,
   GstBaseTransform *trans = GST_BASE_TRANSFORM_CAST (cepstrum);
   GstCepstrumChannel *cd;
   GstStructure *s;
-  GValue *mcv = NULL, *pcv = NULL;
+  GValue *mcv = NULL;
   GstClockTime endtime, running_time, stream_time;
 
   GST_DEBUG_OBJECT (cepstrum,
@@ -876,16 +876,16 @@ compute_mel_filterbank (gfloat *in, gfloat *out, gfloat **fbank, guint nfilts,
     }
 }
 
-#ifdef HAVE_LIBFFTW
 static void
 gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
 {
   guint fft_size = cepstrum->fft_size;
   guint nfft = 2 * fft_size - 2;
   gfloat *spect_magnitude = cd->spect_magnitude;
+  gdouble val;
+#ifdef HAVE_LIBFFTW
   fftw_complex *fftdata = cd->fftdata;
   fftw_plan fftplan = cd->fftplan;
-  gdouble val;
 
   fftw_execute (fftplan);
 
@@ -896,15 +896,7 @@ gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
     val /= nfft;
     spect_magnitude[i] += val;
   }
-}
 #else
-static void
-gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
-{
-  guint fft_size = cepstrum->fft_size;
-  guint nfft = 2 * fft_size - 2;
-  gfloat *spect_magnitude = cd->spect_magnitude;
-  gdouble val;
   gfloat *input_tmp = cd->input_tmp;
   GstFFTF32Complex *fftdata = cd->fftdata;
   GstFFTF32 *fft_ctx = cd->fft_ctx;
@@ -919,8 +911,8 @@ gst_cepstrum_fft (GstCepstrum * cepstrum, GstCepstrumChannel * cd)
     val /= nfft * nfft;
     spect_magnitude[i] += val;
   }
-}
 #endif
+}
 
 static void
 gst_cepstrum_run_mfcc (GstCepstrum *cepstrum, GstCepstrumChannel *cd,
